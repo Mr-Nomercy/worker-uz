@@ -1,0 +1,193 @@
+name: Production CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*.*.*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+# 1. Minimal GitHub Actions permissions globally
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/api
+
+jobs:
+  validate-and-test:
+    name: Code Validation & Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: apps/api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: apps/api
+
+      - name: Prisma Validate
+        run: npx prisma validate
+        working-directory: apps/api
+
+      - name: Lint
+        run: npm run lint
+        working-directory: apps/api
+
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: apps/api
+
+      - name: Test
+        run: npm run test
+        working-directory: apps/api
+
+  build-and-push:
+    name: Build & Security Scan
+    # Strict job dependencies
+    needs: validate-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+      id-token: write # Required for Cosign image signing (OIDC)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3.5.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the Container registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=semver,pattern={{version}}
+            # Intentionally removed type=raw,value=latest to prevent mutating tags in production
+
+      - name: Prepare build environment
+        id: prep
+        run: |
+          echo "timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+      - name: Build and export Docker image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/api
+          file: apps/api/Dockerfile
+          load: true # Emits to Docker daemon for local Trivy scanning
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_TIMESTAMP=${{ steps.prep.outputs.timestamp }}
+            GIT_COMMIT=${{ github.sha }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test'
+          format: 'table'
+          exit-code: '1' # Fails the entire pipeline if vulnerabilities found
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push Docker image
+        id: push-step
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/api
+          file: apps/api/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_TIMESTAMP=${{ steps.prep.outputs.timestamp }}
+            GIT_COMMIT=${{ github.sha }}
+
+      - name: Sign the published Docker image
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.push-step.outputs.digest }}
+        run: |
+          # Use keyless signing by authenticating against GitHub OIDC token against the immutable digest
+          cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}
+
+  deploy:
+    name: Deploy
+    # Strict dependency on secure pushing
+    needs: build-and-push
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    concurrency: 
+      group: production-deploy
+      cancel-in-progress: false
+    environment: 
+      name: production
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: apps/api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: apps/api
+
+      - name: Run Production Database Migrations safely
+        run: npx prisma migrate deploy
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+
+      - name: Trigger Deployment
+        run: |
+          # Guarantee immutable targeting - Never deploy 'latest'
+          IMAGE_TAG="sha-${GITHUB_SHA::7}"
+          echo "Deploying ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG} to production server..."
+          # Production deployment Webhook / Kubectl integration goes here.
+          # We pass DEPLOY_TOKEN in the environment so it's not inadvertently echoed in the script
+          # Example: curl -X POST -H "Authorization: Bearer $DEPLOY_TOKEN" -d "{\"image\": \"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}\"}" https://api.yourdomain.com/deploy
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+          GITHUB_SHA: ${{ github.sha }}

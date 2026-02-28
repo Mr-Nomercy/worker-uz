@@ -1,0 +1,948 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  WORKER
+  EMPLOYER
+  ADMIN
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum GovVerifyStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum CompanySize {
+  SIZE_1_10
+  SIZE_11_50
+  SIZE_51_200
+  SIZE_201_500
+  SIZE_501_1000
+  SIZE_1000_PLUS
+}
+
+enum EmployerStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RecruiterStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+  TEMPORARY
+}
+
+enum VacancyStatus {
+  DRAFT
+  PENDING_REVIEW
+  OPEN
+  CLOSED
+  EXPIRED
+  CANCELLED
+}
+
+enum ComplianceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVIEW_REQUIRED
+}
+
+enum RemoteType {
+  ONSITE
+  REMOTE
+  HYBRID
+}
+
+enum EducationLevel {
+  HIGH_SCHOOL
+  DIPLOMA
+  BACHELORS
+  MASTERS
+  DOCTORATE
+}
+
+enum ProficiencyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum ApplicationStatus {
+  PENDING_REVIEW
+  SHORTLISTED
+  INTERVIEW_INVITED
+  REJECTED
+  WITHDRAWN
+  HIRED
+}
+
+enum InterviewStatus {
+  INVITED
+  ACCEPTED
+  DECLINED
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum InterviewMode {
+  IN_PERSON
+  ONLINE
+  PHONE
+}
+
+enum InterviewOutcome {
+  HIRED
+  REJECTED
+  PENDING_FURTHER_REVIEW
+  OFFER_DECLINED
+}
+
+enum GovApiStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  TIMEOUT
+}
+
+enum VerificationEntityType {
+  USER
+  WORKER
+  EMPLOYER
+  WORKER_EDUCATION
+  WORKER_EXPERIENCE
+  CERTIFICATION
+}
+
+enum VerificationType {
+  IDENTITY
+  BUSINESS
+  EDUCATION
+  EXPERIENCE
+  SKILLS
+}
+
+enum VerificationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum VerificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILURE
+  DENIED
+}
+
+enum HashVerificationStatus {
+  VERIFIED
+  MISMATCH
+  PENDING
+}
+
+enum AccessType {
+  VIEW
+  EXPORT
+  QUERY
+}
+
+model User {
+  id                   String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  email                String     @unique @db.VarChar(255)
+  phone                String?    @db.VarChar(20)
+  passwordHash         String     @map("password_hash") @db.VarChar(255)
+  role                 UserRole   @default(WORKER)
+  status               UserStatus @default(PENDING_VERIFICATION)
+  verifiedAt           DateTime?  @map("verified_at") @db.Timestamp(6)
+  lastLoginAt          DateTime?  @map("last_login_at") @db.Timestamp(6)
+  failedLoginAttempts  Int        @default(0) @map("failed_login_attempts")
+  lockedUntil          DateTime?  @map("locked_until") @db.Timestamp(6)
+  deletedAt            DateTime?  @map("deleted_at") @db.Timestamp(6)
+  createdAt            DateTime   @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt            DateTime   @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  workerProfile         WorkerProfile?
+  employer              Employer?
+  recruiter             Recruiter?
+  sessions              Session[]
+  userRoles             UserRoleRelation[]
+  workerEducation       WorkerEducation[]
+  workerExperience      WorkerExperience[]
+  workerSkills          WorkerSkill[]
+  cvSnapshots           CvSnapshot[]
+  applications          Application[]
+  applicationStatusChanges ApplicationStatusHistory[]
+  vacancyCreated        VacancyVersion[]     @relation("VacancyCreatedBy")
+  interviews            Interview[]
+  interviewChanges      InterviewHistory[]
+  auditLogs             AuditLog[]
+  auditAccessLogs       AuditAccessLog[]
+
+  @@index([status])
+  @@index([role])
+  @@index([deletedAt])
+  @@index([email])
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name        String   @unique @db.VarChar(50)
+  description String?  @db.Text
+  level       Int
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  permissions Permission[]
+  userRoles   UserRoleRelation[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  resource  String   @db.VarChar(100)
+  action    String   @map("action") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, resource, action])
+  @@index([roleId])
+  @@map("permissions")
+}
+
+model UserRoleRelation {
+  userId     String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamp(6)
+  assignedBy String?  @map("assigned_by") @db.Uuid
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model Session {
+  id                String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  familyId         String   @map("family_id") @db.Uuid
+  tokenHash        String   @map("token_hash") @db.VarChar(255)
+  accessTokenJti   String   @map("access_token_jti") @db.Uuid
+  deviceFingerprint String? @map("device_fingerprint") @db.VarChar(255)
+  ipAddress        String?  @map("ip_address") @db.Inet
+  userAgent        String?  @map("user_agent") @db.VarChar(500)
+  isRevoked        Boolean  @default(false) @map("is_revoked")
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamp(6)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamp(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamp(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@index([deletedAt])
+  @@index([isRevoked])
+  @@index([userId, isRevoked, deletedAt])
+  @@map("sessions")
+}
+
+model FailedLoginAttempt {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  ipAddress     String?  @map("ip_address") @db.Inet
+  userAgent     String?  @map("user_agent") @db.VarChar(500)
+  reason        String   @db.VarChar(100)
+  attempts      Int      @default(1) @map("attempts")
+  expiresAt     DateTime @map("expires_at") @db.Timestamp(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("failed_login_attempts")
+}
+
+model SecurityEvent {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid
+  eventType   String   @map("event_type") @db.VarChar(50)
+  ipAddress   String?  @map("ip_address") @db.Inet
+  userAgent   String?  @map("user_agent") @db.VarChar(500)
+  deviceFingerprint String? @map("device_fingerprint") @db.VarChar(255)
+  sessionId   String?  @map("session_id") @db.Uuid
+  familyId    String?  @map("family_id") @db.Uuid
+  details     Json?    @map("details")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("security_events")
+}
+
+model WorkerProfile {
+  userId              String            @id @map("user_id") @db.Uuid
+  nationalId          String            @unique @map("national_id") @db.VarChar(50)
+  fullName            String            @map("full_name") @db.VarChar(255)
+  dateOfBirth         DateTime          @map("date_of_birth") @db.Date
+  gender              Gender
+  permanentAddress    Json              @map("permanent_address")
+  currentAddress      Json?             @map("current_address")
+  profilePhotoUrl     String?           @map("profile_photo_url") @db.VarChar(500)
+  status              UserStatus        @default(PENDING_VERIFICATION)
+  govVerifyStatus     GovVerifyStatus   @default(PENDING)
+  govVerifyAt         DateTime?         @map("gov_verify_at") @db.Timestamp(6)
+  deletedAt           DateTime?         @map("deleted_at") @db.Timestamp(6)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([govVerifyStatus])
+  @@index([deletedAt])
+  @@map("worker_profiles")
+}
+
+model WorkerEducation {
+  id                String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  institutionName  String    @map("institution_name") @db.VarChar(255)
+  institutionCode   String    @map("institution_code") @db.VarChar(50)
+  degree            String    @db.VarChar(255)
+  fieldOfStudy      String    @map("field_of_study") @db.VarChar(255)
+  startDate         DateTime  @map("start_date") @db.Date
+  endDate           DateTime? @map("end_date") @db.Date
+  gradeGpa          Decimal?  @map("grade_gpa") @db.Decimal(5, 2)
+  gradeScale        Decimal?  @map("grade_scale") @db.Decimal(5, 2)
+  verifiedAt        DateTime? @map("verified_at") @db.Timestamp(6)
+  sourceSystem      String    @map("source_system") @db.VarChar(50)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamp(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([deletedAt])
+  @@map("worker_education")
+}
+
+model WorkerExperience {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId           String        @map("user_id") @db.Uuid
+  employerName     String        @map("employer_name") @db.VarChar(255)
+  employerRegNo    String?       @map("employer_reg_no") @db.VarChar(50)
+  jobTitle         String        @map("job_title") @db.VarChar(255)
+  jobType          JobType
+  startDate        DateTime      @map("start_date") @db.Date
+  endDate          DateTime?     @map("end_date") @db.Date
+  salary           Decimal?      @db.Decimal(15, 2)
+  currency         String?       @db.VarChar(3)
+  reasonForLeaving String?       @map("reason_for_leaving") @db.Text
+  verifiedAt       DateTime?     @map("verified_at") @db.Timestamp(6)
+  sourceSystem     String        @map("source_system") @db.VarChar(50)
+  deletedAt        DateTime?     @map("deleted_at") @db.Timestamp(6)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamp(6)
+
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([deletedAt])
+  @@map("worker_experience")
+}
+
+model WorkerSkill {
+  id               String           @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  skillCode       String           @map("skill_code") @db.VarChar(50)
+  skillName       String           @map("skill_name") @db.VarChar(255)
+  proficiencyLevel ProficiencyLevel @map("proficiency_level")
+  yearsExperience  Int              @map("years_experience")
+  verifiedAt       DateTime?        @map("verified_at") @db.Timestamp(6)
+  deletedAt        DateTime?        @map("deleted_at") @db.Timestamp(6)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamp(6)
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([skillCode])
+  @@index([deletedAt])
+  @@map("worker_skills")
+}
+
+model CvSnapshot {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId           String        @map("user_id") @db.Uuid
+  snapshotVersion  Int           @map("snapshot_version")
+  snapshotData     Json          @map("snapshot_data")
+  sha256Hash       String        @unique @map("sha256_hash") @db.VarChar(64)
+  previousHash     String?       @map("previous_hash") @db.VarChar(64)
+  govVerifyStatus  GovVerifyStatus @default(PENDING)
+  govVerifyAt      DateTime?     @map("gov_verify_at") @db.Timestamp(6)
+  sourceApi        String        @map("source_api") @db.VarChar(100)
+  isCurrent        Boolean       @default(false) @map("is_current")
+  deletedAt        DateTime?     @map("deleted_at") @db.Timestamp(6)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamp(6)
+
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications     Application[]
+  applicationVersions ApplicationVersion[]
+
+  @@unique([userId, isCurrent, deletedAt])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([sha256Hash])
+  @@map("cv_snapshots")
+}
+
+model Employer {
+  id                  String         @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  userId             String         @unique @map("user_id") @db.Uuid
+  businessRegNo      String         @unique @map("business_reg_no") @db.VarChar(50)
+  taxId              String         @unique @map("tax_id") @db.VarChar(50)
+  companyName        String         @map("company_name") @db.VarChar(255)
+  legalName          String         @map("legal_name") @db.VarChar(255)
+  industry           String         @db.VarChar(100)
+  companySize        CompanySize    @map("company_size")
+  website            String?        @db.VarChar(255)
+  description        String?        @db.Text
+  headquartersAddress Json           @map("headquarters_address")
+  verifiedAt         DateTime?      @map("verified_at") @db.Timestamp(6)
+  status             EmployerStatus @default(PENDING_VERIFICATION)
+  maxVacancies       Int            @default(50) @map("max_vacancies")
+  maxRecruiters     Int            @default(10) @map("max_recruiters")
+  deletedAt          DateTime?      @map("deleted_at") @db.Timestamp(6)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  user               User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  branches           EmployerBranch[]
+  recruiters         Recruiter[]
+  vacancies          Vacancy[]
+  interviews         Interview[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("employers")
+}
+
+model EmployerBranch {
+  id          String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  employerId  String        @map("employer_id") @db.Uuid
+  branchName  String        @map("branch_name") @db.VarChar(255)
+  address     Json
+  city        String        @db.VarChar(100)
+  state       String        @db.VarChar(100)
+  country     String        @db.VarChar(100)
+  postalCode  String?       @map("postal_code") @db.VarChar(20)
+  phone       String?       @db.VarChar(20)
+  isHq        Boolean      @default(false) @map("is_hq")
+  status      BranchStatus @default(ACTIVE)
+  deletedAt   DateTime?     @map("deleted_at") @db.Timestamp(6)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamp(6)
+
+  employer    Employer     @relation(fields: [employerId], references: [id], onDelete: Restrict)
+  vacancies   Vacancy[]
+
+  @@index([employerId])
+  @@index([deletedAt])
+  @@map("employer_branches")
+}
+
+model Recruiter {
+  id           String          @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  employerId   String          @map("employer_id") @db.Uuid
+  userId       String          @unique @map("user_id") @db.Uuid
+  name         String          @db.VarChar(255)
+  designation  String?         @db.VarChar(100)
+  department   String?         @db.VarChar(100)
+  phone        String?         @db.VarChar(20)
+  status       RecruiterStatus @default(PENDING)
+  deletedAt    DateTime?       @map("deleted_at") @db.Timestamp(6)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
+
+  employer     Employer       @relation(fields: [employerId], references: [id], onDelete: Restrict)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  interviews   Interview[]
+
+  @@index([employerId])
+  @@index([deletedAt])
+  @@map("recruiters")
+}
+
+model Vacancy {
+  id                  String           @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  employerId          String           @map("employer_id") @db.Uuid
+  branchId            String?          @map("branch_id") @db.Uuid
+  jobTitle            String           @map("job_title") @db.VarChar(255)
+  jobCode             String           @map("job_code") @db.VarChar(50)
+  jobDescription      String           @map("job_description") @db.Text
+  jobType             JobType          @map("job_type")
+  salaryMin           Decimal          @map("salary_min") @db.Decimal(15, 2)
+  salaryMax           Decimal          @map("salary_max") @db.Decimal(15, 2)
+  salaryCurrency      String           @map("salary_currency") @db.VarChar(3)
+  salaryIsNegotiable  Boolean          @default(false) @map("salary_is_negotiable")
+  locationAddress     Json?            @map("location_address")
+  locationCity        String           @map("location_city") @db.VarChar(100)
+  locationState        String           @map("location_state") @db.VarChar(100)
+  locationCountry     String           @map("location_country") @db.VarChar(100)
+  isRemote            Boolean          @default(false) @map("is_remote")
+  remoteType          RemoteType?      @map("remote_type")
+  experienceMinYears  Int?             @map("experience_min_years")
+  experienceMaxYears  Int?             @map("experience_max_years")
+  educationMinLevel   EducationLevel? @map("education_min_level")
+  vacancyCount       Int              @default(1) @map("vacancy_count")
+  currentVersion      Int              @default(1) @map("current_version")
+  status              VacancyStatus    @default(DRAFT)
+  expiresAt           DateTime?        @map("expires_at") @db.Timestamp(6)
+  publishedAt         DateTime?        @map("published_at") @db.Timestamp(6)
+  closedAt            DateTime?        @map("closed_at") @db.Timestamp(6)
+  complianceStatus    ComplianceStatus @default(PENDING) @map("compliance_status")
+  complianceNotes     String?          @map("compliance_notes") @db.Text
+  viewCount           Int              @default(0) @map("view_count")
+  applicationCount    Int              @default(0) @map("application_count")
+  deletedAt           DateTime?        @map("deleted_at") @db.Timestamp(6)
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  employer             Employer          @relation(fields: [employerId], references: [id], onDelete: Restrict)
+  branch              EmployerBranch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  skills              VacancySkill[]
+  requirements        VacancyRequirement[]
+  versions            VacancyVersion[]
+  applications        Application[]
+  interviews          Interview[]
+
+  @@index([employerId])
+  @@index([status])
+  @@index([locationCity])
+  @@index([publishedAt])
+  @@index([expiresAt])
+  @@index([deletedAt])
+  @@index([employerId, status, deletedAt])
+  @@map("vacancies")
+}
+
+model VacancySkill {
+  id              String           @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  vacancyId       String           @map("vacancy_id") @db.Uuid
+  skillCode       String           @map("skill_code") @db.VarChar(50)
+  skillName       String           @map("skill_name") @db.VarChar(255)
+  isRequired      Boolean          @default(true) @map("is_required")
+  minProficiency  ProficiencyLevel? @map("min_proficiency")
+  deletedAt       DateTime?        @map("deleted_at") @db.Timestamp(6)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamp(6)
+
+  vacancy         Vacancy          @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+
+  @@unique([vacancyId, skillCode, deletedAt])
+  @@index([vacancyId])
+  @@index([deletedAt])
+  @@map("vacancy_skills")
+}
+
+model VacancyRequirement {
+  id                String              @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  vacancyId         String              @map("vacancy_id") @db.Uuid
+  requirementType   String              @map("requirement_type") @db.VarChar(50)
+  requirementText   String              @map("requirement_text") @db.Text
+  isMandatory       Boolean             @default(true) @map("is_mandatory")
+  deletedAt         DateTime?            @map("deleted_at") @db.Timestamp(6)
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamp(6)
+
+  vacancy           Vacancy             @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+
+  @@index([vacancyId])
+  @@index([deletedAt])
+  @@map("vacancy_requirements")
+}
+
+model VacancyVersion {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  vacancyId       String   @map("vacancy_id") @db.Uuid
+  versionNumber   Int      @map("version_number")
+  snapshotData   Json     @map("snapshot_data")
+  changeSummary  String?  @map("change_summary") @db.Text
+  isCurrent      Boolean  @default(false) @map("is_current")
+  createdBy       String   @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  vacancy         Vacancy  @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  createdByUser   User     @relation("VacancyCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([vacancyId, versionNumber])
+  @@index([vacancyId])
+  @@index([isCurrent])
+  @@map("vacancy_versions")
+}
+
+model Application {
+  id              String            @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  vacancyId       String            @map("vacancy_id") @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  cvSnapshotId    String            @map("cv_snapshot_id") @db.Uuid
+  currentVersion  Int              @default(1) @map("current_version")
+  status          ApplicationStatus @default(PENDING_REVIEW)
+  employerNotes   String?           @map("employer_notes") @db.Text
+  appliedAt       DateTime          @default(now()) @map("applied_at") @db.Timestamp(6)
+  reviewedAt      DateTime?         @map("reviewed_at") @db.Timestamp(6)
+  deletedAt       DateTime?         @map("deleted_at") @db.Timestamp(6)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  vacancy         Vacancy            @relation(fields: [vacancyId], references: [id], onDelete: Restrict)
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cvSnapshot      CvSnapshot        @relation(fields: [cvSnapshotId], references: [id], onDelete: Restrict)
+  statusHistory   ApplicationStatusHistory[]
+  versions        ApplicationVersion[]
+  interview       Interview?
+
+  @@unique([vacancyId, userId, deletedAt])
+  @@index([vacancyId])
+  @@index([userId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([vacancyId, status, deletedAt])
+  @@index([userId, deletedAt])
+  @@map("applications")
+}
+
+model ApplicationStatusHistory {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  applicationId String   @map("application_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  status        String   @db.VarChar(50)
+  changedAt     DateTime @default(now()) @map("changed_at") @db.Timestamp(6)
+  changedBy     String   @map("changed_by") @db.Uuid
+  reason        String?  @db.Text
+
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  changedByUser User       @relation(fields: [changedBy], references: [id], onDelete: Restrict)
+
+  @@index([applicationId])
+  @@index([versionNumber])
+  @@map("application_status_history")
+}
+
+model ApplicationVersion {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  applicationId   String   @map("application_id") @db.Uuid
+  versionNumber   Int      @map("version_number")
+  cvSnapshotId    String   @map("cv_snapshot_id") @db.Uuid
+  snapshotData    Json     @map("snapshot_data")
+  statusAtTime    String   @map("status_at_time") @db.VarChar(50)
+  isCurrent      Boolean  @default(false) @map("is_current")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  application    Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  cvSnapshot     CvSnapshot @relation(fields: [cvSnapshotId], references: [id], onDelete: Restrict)
+
+  @@unique([applicationId, versionNumber])
+  @@index([applicationId])
+  @@index([isCurrent])
+  @@map("application_versions")
+}
+
+model Interview {
+  id            String           @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  applicationId String           @unique @map("application_id") @db.Uuid
+  vacancyId     String           @map("vacancy_id") @db.Uuid
+  userId        String           @map("user_id") @db.Uuid
+  employerId    String           @map("employer_id") @db.Uuid
+  recruiterId   String?          @map("recruiter_id") @db.Uuid
+  status        InterviewStatus  @default(INVITED)
+  invitedAt     DateTime        @default(now()) @map("invited_at") @db.Timestamp(6)
+  respondedAt   DateTime?       @map("responded_at") @db.Timestamp(6)
+  scheduledAt   DateTime?       @map("scheduled_at") @db.Timestamp(6)
+  completedAt   DateTime?       @map("completed_at") @db.Timestamp(6)
+  mode          InterviewMode?  @map("mode")
+  location      String?          @db.VarChar(500)
+  deletedAt     DateTime?        @map("deleted_at") @db.Timestamp(6)
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt     DateTime        @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  application    Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  vacancy        Vacancy           @relation(fields: [vacancyId], references: [id], onDelete: Restrict)
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employer       Employer         @relation(fields: [employerId], references: [id], onDelete: Restrict)
+  recruiter      Recruiter?        @relation(fields: [recruiterId], references: [id], onDelete: SetNull)
+  schedule       InterviewSchedule?
+  outcome        InterviewResult?
+  history        InterviewHistory[]
+
+  @@index([vacancyId])
+  @@index([userId])
+  @@index([employerId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([userId, status, deletedAt])
+  @@index([employerId, status, deletedAt])
+  @@map("interviews")
+}
+
+model InterviewSchedule {
+  id                   String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  interviewId         String    @unique @map("interview_id") @db.Uuid
+  scheduledDatetime    DateTime  @map("scheduled_datetime") @db.Timestamp(6)
+  durationMinutes      Int       @map("duration_minutes")
+  mode                InterviewMode
+  location            String?   @db.VarChar(500)
+  meetingLink         String?   @map("meeting_link") @db.VarChar(500)
+  employerConfirmed   Boolean   @default(false) @map("employer_confirmed")
+  employerConfirmedAt DateTime? @map("employer_confirmed_at") @db.Timestamp(6)
+  workerConfirmed     Boolean   @default(false) @map("worker_confirmed")
+  workerConfirmedAt   DateTime? @map("worker_confirmed_at") @db.Timestamp(6)
+  reminderSentAt      DateTime? @map("reminder_sent_at") @db.Timestamp(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  interview            Interview  @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@index([interviewId])
+  @@index([scheduledDatetime])
+  @@map("interview_schedules")
+}
+
+model InterviewResult {
+  id                String            @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  interviewId       String            @unique @map("interview_id") @db.Uuid
+  outcome           InterviewOutcome
+  outcomeDate       DateTime          @map("outcome_date") @db.Date
+  feedback          String?           @db.Text
+  internalFeedback String?           @map("internal_feedback") @db.Text
+  hiredSalary      Decimal?          @map("hired_salary") @db.Decimal(15, 2)
+  hiredStartDate   DateTime?         @map("hired_start_date") @db.Date
+  contractDetails  Json?             @map("contract_details")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamp(6)
+
+  interview         Interview        @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@index([interviewId])
+  @@map("interview_results")
+}
+
+model InterviewHistory {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  interviewId String   @map("interview_id") @db.Uuid
+  action      String   @db.VarChar(50)
+  oldValue    String?  @map("old_value") @db.Text
+  newValue    String?  @map("new_value") @db.Text
+  changedAt   DateTime @default(now()) @map("changed_at") @db.Timestamp(6)
+  changedBy   String   @map("changed_by") @db.Uuid
+  reason      String?  @db.Text
+
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  changedByUser User   @relation(fields: [changedBy], references: [id], onDelete: Restrict)
+
+  @@index([interviewId])
+  @@map("interview_history")
+}
+
+model GovApiLog {
+  id                  String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  apiType             String        @map("api_type") @db.VarChar(100)
+  requestUrl          String        @map("request_url") @db.VarChar(500)
+  requestMethod       String        @map("request_method") @db.VarChar(10)
+  requestPayload      Json          @map("request_payload")
+  requestHeaders      Json          @map("request_headers")
+  responseStatusCode  Int?          @map("response_status_code")
+  responseBody        Json?         @map("response_body")
+  responseTimeMs      Int?          @map("response_time_ms")
+  errorMessage        String?        @map("error_message") @db.Text
+  govTransactionId    String?        @map("gov_transaction_id") @db.VarChar(100)
+  status              GovApiStatus   @default(PENDING)
+  retryCount          Int            @default(0) @map("retry_count")
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([apiType])
+  @@index([status])
+  @@index([govTransactionId])
+  @@map("gov_api_logs")
+}
+
+model VerificationQueue {
+  id                String                @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  entityType        VerificationEntityType @map("entity_type")
+  entityId          String                @map("entity_id") @db.Uuid
+  verificationType  VerificationType       @map("verification_type")
+  status            VerificationStatus     @default(PENDING)
+  priority          VerificationPriority   @default(NORMAL)
+  requestData       Json?                 @map("request_data")
+  responseData      Json?                 @map("response_data")
+  retryCount        Int                    @default(0) @map("retry_count")
+  maxRetries        Int                    @default(3) @map("max_retries")
+  scheduledAt       DateTime?              @map("scheduled_at") @db.Timestamp(6)
+  startedAt         DateTime?              @map("started_at") @db.Timestamp(6)
+  completedAt       DateTime?              @map("completed_at") @db.Timestamp(6)
+  errorMessage      String?                @map("error_message") @db.Text
+  createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([entityType, entityId])
+  @@index([status])
+  @@index([priority])
+  @@index([scheduledAt])
+  @@map("verification_queue")
+}
+
+model GovResponseCache {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  requestHash   String   @unique @map("request_hash") @db.VarChar(64)
+  apiType       String   @map("api_type") @db.VarChar(100)
+  responseData  Json     @map("response_data")
+  ttlSeconds    Int      @default(3600) @map("ttl_seconds")
+  expiresAt     DateTime @map("expires_at") @db.Timestamp(6)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@unique([requestHash, expiresAt])
+  @@index([apiType])
+  @@index([expiresAt])
+  @@map("gov_response_cache")
+}
+
+model MatchScore {
+  id                  String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  workerId            String    @map("worker_id") @db.Uuid
+  vacancyId           String    @map("vacancy_id") @db.Uuid
+  totalScore          Float     @map("total_score")
+  skillScore          Float     @default(0) @map("skill_score")
+  experienceScore     Float     @default(0) @map("experience_score")
+  educationScore      Float     @default(0) @map("education_score")
+  locationScore       Float     @default(0) @map("location_score")
+  salaryScore         Float     @default(0) @map("salary_score")
+  skillMatchCount     Int       @default(0) @map("skill_match_count")
+  skillRequiredCount  Int       @default(0) @map("skill_required_count")
+  isRecommended       Boolean   @default(false) @map("is_recommended")
+  calculatedAt        DateTime  @default(now()) @map("calculated_at") @db.Timestamp(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  @@unique([workerId, vacancyId])
+  @@index([workerId])
+  @@index([vacancyId])
+  @@index([totalScore])
+  @@index([isRecommended])
+  @@index([workerId, totalScore(sort: Desc)])
+  @@index([vacancyId, totalScore(sort: Desc)])
+  @@map("match_scores")
+}
+
+model AuditLog {
+  id             String      @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  eventId        String      @unique @map("event_id") @db.Uuid
+  timestamp      DateTime    @default(now()) @map("timestamp") @db.Timestamp(6)
+  actorUserId    String?     @map("actor_user_id") @db.Uuid
+  actorRole      String      @map("actor_role") @db.VarChar(50)
+  ipAddress      String?     @map("ip_address") @db.Inet
+  userAgent      String?     @map("user_agent") @db.VarChar(500)
+  action         String      @db.VarChar(100)
+  resourceType   String      @map("resource_type") @db.VarChar(100)
+  resourceId     String?     @map("resource_id") @db.Uuid
+  beforeState    Json?       @map("before_state")
+  afterState     Json?       @map("after_state")
+  result         AuditResult
+  reason         String?     @db.Text
+  correlationId  String?     @map("correlation_id") @db.Uuid
+  sessionId      String?     @map("session_id") @db.Uuid
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamp(6)
+
+  actorUser      User?       @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  auditAccessLogs AuditAccessLog[]
+
+  @@index([actorUserId])
+  @@index([action])
+  @@index([resourceType, resourceId])
+  @@index([timestamp])
+  @@index([correlationId])
+  @@map("audit_logs")
+}
+
+model IntegrityHash {
+  id                 String               @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  entityType         String               @map("entity_type") @db.VarChar(100)
+  entityId           String               @map("entity_id") @db.Uuid
+  recordHash         String               @map("record_hash") @db.VarChar(64)
+  previousHash       String?              @map("previous_hash") @db.VarChar(64)
+  hashAlgorithm      String               @default("SHA256") @map("hash_algorithm") @db.VarChar(20)
+  recordVersion      Int                  @map("record_version")
+  verifiedAt         DateTime?            @map("verified_at") @db.Timestamp(6)
+  verificationStatus HashVerificationStatus @default(PENDING) @map("verification_status")
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@unique([entityType, entityId, recordVersion])
+  @@index([entityType, entityId])
+  @@index([entityId, recordVersion])
+  @@map("integrity_hashes")
+}
+
+model AuditAccessLog {
+  id              String      @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  auditLogId      String      @map("audit_log_id") @db.Uuid
+  accessorUserId  String      @map("accessor_user_id") @db.Uuid
+  accessReason    String      @map("access_reason") @db.Text
+  accessType      AccessType  @map("access_type")
+  ipAddress       String?     @map("ip_address") @db.Inet
+  accessTimestamp DateTime   @default(now()) @map("access_timestamp") @db.Timestamp(6)
+
+  auditLog        AuditLog    @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
+  accessorUser    User        @relation(fields: [accessorUserId], references: [id], onDelete: Cascade)
+
+  @@index([auditLogId])
+  @@index([accessorUserId])
+  @@map("audit_access_logs")
+}

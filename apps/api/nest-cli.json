@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": false,
+    "tsConfigPath": "tsconfig.build.json"
+  },
+  "monorepo": true,
+  "root": "apps/api",
+  "type": "application",
+  "language": "ts",
+  "interest": ["@nestjs/core", "@nestjs/common"],
+  "aliases": {
+    "@api/*": "src/*",
+    "@common/*": "src/common/*",
+    "@config/*": "src/config/*",
+    "@database/*": "src/database/*",
+    "@health/*": "src/health/*",
+    "@logging/*": "src/logging/*",
+    "@redis/*": "src/redis/*"
+  }
+}
